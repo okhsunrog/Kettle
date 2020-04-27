@@ -1,13 +1,15 @@
 #include <Arduino.h>
-#include <Adafruit_NeoPixel.h>
+#include <Adafruit_NeoPixel.h> //for controlling RGB digital led
 #include <ESP8266WiFi.h>
-#include <ESP8266WiFiMulti.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
 #include <StreamString.h>
-#include <OneWire.h>
-#include <EEPROM.h>
-#include "SSD1306Wire.h"
+#include <OneWire.h> //for temp sensor
+#include <EEPROM.h> //memory for temperature and color
+#include "SSD1306Wire.h" //display
+#include <ESP8266mDNS.h>
+#include <WiFiUdp.h>
+#include <ArduinoOTA.h> //yeah, we can upload new firmware Over The Air
 
 #define LED_PIN 15
 #define TEMP_PIN 14
@@ -18,11 +20,10 @@
 #define MyApiKey "e6b21115-e8a2-404f-980a-0b0833cf4ad7"
 #define MySSID "JustANet"
 #define MyWifiPassword "wifi4you"
-#define HEARTBEAT_INTERVAL 30000 // 30 seconds0.068
-#define C 0.063 //temperature coefficient
+#define C 0.064 //temperature coefficient
+#define HEARTBEAT_INTERVAL 30000
 
 
-ESP8266WiFiMulti WiFiMulti;
 WebSocketsClient webSocket;
 SSD1306Wire display(0x3c, SDA, SCL);
 Adafruit_NeoPixel strip(1, LED_PIN, NEO_GRB + NEO_KHZ800);
@@ -45,10 +46,9 @@ void updateDisplay();
 
 void setup() {
   display.init();
-  display.flipScreenVertically();
   display.setFont(ArialMT_Plain_16);
   display.clear();
-  display.drawString(30, 15, "Loading");
+  display.drawString(30, 15, "Windows XP");
   display.display();
   pinMode(BUTTON_PIN, INPUT);
   pinMode(RELAY_PIN, OUTPUT);
@@ -67,15 +67,18 @@ void setup() {
   if (lightIsOn) strip.setPixelColor(0, r, g, b);
   else strip.setPixelColor(0, 0, 0, 0);
   strip.show();
-  WiFiMulti.addAP(MySSID, MyWifiPassword);
-  // Waiting for Wifi connect
-  while (WiFiMulti.run() != WL_CONNECTED) {
-    delay(500);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(MySSID, MyWifiPassword);
+  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
+    delay(5000);
+    ESP.restart();
   }
+  ArduinoOTA.setPassword((const char *)"123");
   webSocket.begin("iot.sinric.com", 80, "/");
   webSocket.onEvent(webSocketEvent);
   webSocket.setAuthorization("apikey", MyApiKey);
   webSocket.setReconnectInterval(5000);
+  ArduinoOTA.begin();
 }
 
 
@@ -138,6 +141,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 }
 
 void loop() {
+  ArduinoOTA.handle();
   temp = getTemp();
   webSocket.loop();
   if(prevTemp != temp){
@@ -165,11 +169,11 @@ void loop() {
   }
   if (kettleIsOn) {
     if (heating) {
-        if ((xtemp - temp) < 5) {
+        if ((xtemp - temp) < 7) {
           heating = false;
           switching = true;
         }
-      } else if ((xtemp - temp) > 14) {
+      } else if ((xtemp - temp) > 16) {
         heating = true;
         switching = true;
       }
@@ -248,11 +252,11 @@ void updateDisplay() {
   display.drawString(20, 16, "temp: ");
   display.setFont(ArialMT_Plain_24);
   display.drawString(50, 16, (String) temp + "°C");
-  display.setFont(ArialMT_Plain_10);
+  display.setFont(ArialMT_Plain_16);
   if (kettleIsOn) {
-    display.drawString(20, 42, "turned on");
-    if (heating) display.drawString(20, 52, "heating");
-  } else display.drawString(20, 42, "turned off");
+    if (heating) display.drawString(20, 48, "heating");
+    else display.drawString(20, 48, "turned on");
+  } else display.drawString(20, 48, "turned off");
   display.display();
 }
 
